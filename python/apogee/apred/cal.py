@@ -1,126 +1,316 @@
-# encoding: utf-8
-#
-# @Author: Jon Holtzman
-# @Date: October 2018
-# @Filename: wave.py
-# @License: BSD 3-Clause
-# @Copyright: Jon Holtzman
+#!/usr/bin/env python
 
-# general routines for APOGEE calibration
 
-from __future__ import division
+""" CAL.PY - APOGEE calibration scripts
+
+"""
+
 from __future__ import print_function
-from __future__ import absolute_import
-from __future__ import unicode_literals
+
+__authors__ = 'David Nidever <dnidever@montana.edu>'
+__version__ = '20200805'  # yyyymmdd                                                                                                                           
+
+# The makeXXX.pro scripts were written by J. Holtzman and translated by D.Nidever and Drew Chojnowski
 
 import os
-import glob
-import pdb
 import numpy as np
+import warnings
 from astropy.io import fits
+from astropy.table import Table, Column
+from astropy import modeling
+from glob import glob
+from scipy.signal import medfilt
+from scipy.ndimage.filters import median_filter,gaussian_filter1d
+from scipy.optimize import curve_fit, least_squares
+from scipy.special import erf
+from scipy.interpolate import interp1d
+#from numpy.polynomial import polynomial as poly
+#from lmfit import Model
+#from apogee.utils import yanny, apload
+#from sdss_access.path import path
+import bindata
 
-def mkpar(mjdstart,mjdend,out='wave',lco=False,yearout='multiwave', append=False) :
-    """ Make calibration file list for wavecals between input dates
-    """
-    # open output file
-    print(mjdstart,mjdend,out)
-    if append: f = open(out,'a+')
-    else : f = open(out,'w')
-    indiv = []
-    psf = []
-    sky = []
-    bad=np.loadtxt(os.environ['APOGEE_DIR']+'/data/cal/bad',dtype=int)
-    for mjd in range(mjdstart,mjdend) :
-        # get the files for this dat
-        if lco :
-            files = sorted(glob.glob(os.environ['APOGEE_DATA_2S']+'/'+str(mjd)+'/*-a-*.apz'))
-        else :
-            files = sorted(glob.glob(os.environ['APOGEE_DATA']+'/'+str(mjd)+'/*-a-*.apz'))
-        print(mjd)
-        dome=0
-        if len(files) > 3:
-            # look for sequences of QUARTZ, THARNE, UNE or THARNE, UNE, QUARTZ all at the same dither position
-            hdr1 = fits.open(files[0])[1].header
-            hdr2 = fits.open(files[1])[1].header
-            for ifile in range(2,len(files)-1) :
-                try :
-                    hdr3 = fits.open(files[ifile])[1].header
-                    #print(hdr1['DITHPIX'],hdr2['DITHPIX'],hdr3['DITHPIX'],hdr1['LAMPQRTZ'],hdr2['LAMPTHAR'],hdr3['LAMPUNE'])
-                    gd = False
-                    if hdr2['DITHPIX'] == hdr3['DITHPIX']  and hdr1['LAMPQRTZ'] and hdr2['LAMPTHAR'] and hdr3['LAMPUNE'] :
-                        thar = ifile-1
-                        une = ifile
-                        qrtz = ifile-2
-                        gd = True
-                    elif hdr1['DITHPIX'] == hdr2['DITHPIX']  and hdr3['LAMPQRTZ'] and hdr1['LAMPTHAR'] and hdr2['LAMPUNE'] :
-                        thar = ifile-2
-                        une = ifile-1
-                        qrtz = ifile
-                        gd = True
-                    if gd :
-                        # remove if indicated as bad in calibration data file
-                        num=int(files[thar].split('-')[2].replace('.apz',''))
-                        if len(np.where(bad == num)[0]) > 0 : gd = False
-                        num0 = (num // 10000 ) * 10000
-                        if len(np.where(bad == num0)[0]) > 0 : gd = False
+# Ignore these warnings, it's a bug
+warnings.filterwarnings("ignore", message="numpy.dtype size changed")
+warnings.filterwarnings("ignore", message="numpy.ufunc size changed")
 
-                    # write out the wave information and accumulate multiwave information
-                    if gd :
-                        f.write('wave 99999 99999 {:8s} {:8s},{:8s} {:8s}\n'.format(
-                             files[thar].split('-')[2].replace('.apz',''),
-                             files[thar].split('-')[2].replace('.apz',''),
-                             files[une].split('-')[2].replace('.apz',''),
-                             files[qrtz].split('-')[2].replace('.apz','')))
-                        indiv.append(files[thar].split('-')[2].replace('.apz','') )
-                        indiv.append(files[une].split('-')[2].replace('.apz','') )
-                        psf.append(files[qrtz].split('-')[2].replace('.apz','') )
-                        psf.append(files[qrtz].split('-')[2].replace('.apz','') )
-                    # look for sky frames and preceding domeflat, for LSF product (should be following domeflat for APO!)
-                    if hdr3['IMAGETYP'] == 'DomeFlat' : dome = ifile
-                    if hdr1['IMAGETYP'].strip() == 'Object' and hdr1['NFRAMES']>10 and hdr1['NFRAMES']<41 :
-                       sky.append(files[ifile-2].split('-')[2].replace('.apz','') )
-                       f.write('lsf 99999 99999 {:8s} {:8s} {:8s}\n'.format(
-                             files[ifile-2].split('-')[2].replace('.apz',''),
-                             files[ifile-2].split('-')[2].replace('.apz',''),
-                             files[dome].split('-')[2].replace('.apz','')))
-                except :
-                    pass
-                hdr1=hdr2
-                hdr2=hdr3
-    # now write the multiwave lines for groups of 20 individual wavecals
-    for i in range(0,len(indiv),20) :
-        name = indiv[i][0:4]+'0000'
-        f.write('multiwave 99999 99999 {:8s} {:8s}'.format(name,indiv[i]))
-        for j in range(1,20) : 
-            try: f.write(',{:8s}'.format(indiv[i+j]))
-            except : pass
-        f.write('\n')
-    f.close()
 
-    # now write the multiwave lines for the full period spaced by 10 days
-    f = open(yearout,'a+')
-    last = 0
-    for i in range(0,len(indiv),2) :
-        name = str((mjdstart-55562)*10000)
-        if i == 0 : 
-            f.write('multiwave {:d} {:d} {:8s} {:8s},{:8s}'.format(mjdstart, mjdend, name, indiv[i],indiv[i+1] ))
-        elif int(indiv[i][0:4]) > last+10 : 
-            f.write(',{:8s},{:8s}'.format(indiv[i],indiv[i+1]))
-            last = int(indiv[i+1][0:4])
-    f.write('\n')
-    f.close()
+def mkdark(ims,cmjd=None,step=None,psfid=None,clobber=False):
 
-def mkallpars(apo=True,lco=True) :
-    if lco :
-        try : os.remove('apogee-s-wave.par')
-        except : pass
-        mjds= [57829, 57966, 58360, 58700]
-        for i in range(len(mjds)-1) :
-            mkpar(mjds[i],mjds[i+1],out='apogee-s-wave.par',lco=True,yearout='apogee-s-multiwave.par', append=True)
-    if apo :
-        try : os.remove('apogee-n-wave.par')
-        except : pass
-        mjds= [55800, 56130, 56512, 56876, 57230, 57600, 57966, 58360, 58700]
-        for i in range(len(mjds)-1) :
-            mkpar(mjds[i],mjds[i+1],out='apogee-n-wave.par',yearout='apogee-n-multiwave.par', append=True)
-        
+#======================================================================
+#
+# mkdark : makes superdarks
+#
+#  USAGE:  mkdark,ims,cmjd=cmjd,step=step,psfid=psfid
+#
+#   INPUT:  ims: list of image numbers to include in superdark
+#           cmjd=cmjd : (optional,obsolete) gives MJD directory name if not encoded in file number
+#           step=step : (optional,obsolete) process every step image in UTR
+#           psfid=psfid : (optional) EPSF id to use to try to subtract off thermal traces
+#
+#   OUTPUT:  a set of apDark-[abc]-ID8.fits files
+#
+
+i1 = ims[0]
+nframes = len(ims)
+
+dirs = getdir()
+caldir = dirs.caldir
+
+# is another process already creating file
+darkfile = caldir+'/darkcorr/'+dirs.prefix+string(format='("Dark-",i8.8)',i1) +'.tab'
+while file_test(darkfile+'.lock') do apwait,darkfile,10
+
+# does file already exist?
+if file_test(darkfile) and ~keyword_set(clobber) then begin
+  print,' Dark file: ', darkfile, ' already made'
+  return
+endif
+
+# open lock file
+openw,lock,/get_lun,darkfile+'.lock'
+free_lun,lock
+
+# initialize summary structure
+sum = {num: i1, nframes: 0, nreads: 0, nsat: 0L, nhot: 0L, nhotneigh: 0L, nbad: 0L, medrate: 0., psfid: 0L, nneg: 0L}
+darklog = REPLICATE(sum,3)
+
+if not keyword_set(step) then step = 0
+# loop over the chips
+chips = ['a','b','c']
+for ichip = 0,len(chips)-1 do begin
+ chip = chips[ichip]
+
+ time0 = systime(/seconds)
+ ii = 0
+ for jj = 0,len(ims)-1 do begin
+  i = ims[jj]
+  if not keyword_set(cmjd) then cm = getcmjd(i) else cm = cmjd
+  print,chip,i
+
+  # process (bias-only) each individual frame
+  d = process(cm,i,chip,head,r,step=step,/nofs,/nofix,/nocr)
+  print,'done process'
+  sz = size(d)
+  if sz[1] ne 2048 then stop,sz
+  mask = bytarr(sz[1],sz[2])
+
+  # construct cube of reads minus second read
+  if jj eq 0 then head0 = head
+  sz = size(r)
+  if jj eq 0 then begin
+    if ichip eq 0 then red = fltarr(2048,2048,sz[3],nframes) else red *= 0.
+  endif
+  red[*,*,*,ii] = r
+  apgundef,r
+  for iread = sz[3]-1,1,-1 do begin
+    red[*,*,iread,ii] -= red[*,*,1,ii]
+  endfor
+  ii = ii+1
+  help,/mem
+ endfor
+ 
+ # median them all
+ print,'median...'
+ dark = median(red,dimension=4)
+
+ # option to remove any trace of spectral traces
+ if keyword_set(psfid) then begin
+   darklog[ichip].psfid = psfid
+   print,'reading epsf '
+   file = dirs.prefix+string(format='("EPSF-",a,"-",i8.8)',chip,psfid)
+   tmp = mrdfits(caldir+'/psf/'+file+'.fits',0,head)
+   ntrace = sxpar(head,'NTRACE')
+   img = ptrarr(ntrace,/allocate_heap)
+   for i = 0,ntrace-1 do begin
+     ptmp = mrdfits(caldir+file+'.fits',i+1,/silent)
+     *img[i] = ptmp.img
+     p  = {lo: ptmp.lo, hi: ptmp.hi, img: img[i]}
+     if i eq 0 then psf = replicate(p,ntrace)
+     psf[i] = p
+   endfor
+   nread = sz[3]
+   for iread = 2,nread-1 do begin
+     var = dark[*,*,iread]
+     # want to subtract off mean background dark level before fitting traces
+     # iterate once for this
+     back = median(dark[*,*,iread],10)
+     niter = 2
+     for iter=0,niter-1 do begin
+       print,iread,iter
+       d = dark[*,*,iread]-back
+       spec = extract(d,ntrace,psf,var)
+       sspec = zap(spec,[200,1])
+       d*=0
+       for k=0,ntrace-1 do begin
+         p1 = psf[k]
+         lo = psf[k].lo & hi = psf[k].hi
+         img=*p1.img
+         r = intarr(hi-lo+1)+1
+         sub = sspec[*,k]#r
+         bad = where(sub lt 0,nbad)
+         if nbad gt 0 then sub[bad] = 0
+         d[*,lo:hi] += sub*img
+       endfor
+       if iter lt niter-1 then back = median(dark[*,*,iread]-d,10)
+     endfor
+     dark[*,*,iread]-=d
+   endfor
+ endif
+
+ # flag "hot" pixels in mask image
+ nread = sz[3]
+ rate = (dark[*,*,nread-1]-dark[*,*,1])/(nread-2)
+
+ # create mask array
+ # NaN is bad!
+ bad = where(finite(rate) eq 0,nsat) 
+ if nsat gt 0 then mask[bad] = mask[bad] or 1
+
+ # flux accumulating very fast is bad!
+ #maxrate = 25.
+ maxrate = 10.
+ hot = where(rate gt maxrate,nhot)
+ if nhot gt 0 then mask[hot] = mask[hot] or 2
+ # flag adjacent pixels to hot pixels as bad at 1/4 the maximum rate
+ n = [-1,1,-2048,2048]
+ nhotneigh = 0
+ for in=0,3 do begin
+   # only consider neighbors on the chip!
+   neigh = hot+n[in]
+   on = where(neigh ge 0 and neigh lt 2048L*2048L)
+   nlow = where(rate[neigh[on]] gt maxrate/4.,nbad)
+   if nbad ge 0 then mask[neigh[on[nlow]]] = mask[neigh[on[nlow]]] or 4
+   nhotneigh += len(hot)
+   # same for bad
+   neigh = bad+n[in]
+   on = where(neigh ge 0 and neigh lt 2048L*2048L)
+   nlow = where(rate[neigh[on]] gt maxrate/4.,nbad)
+   if nbad gt 0 then mask[neigh[on[nlow]]] = mask[neigh[on[nlow]]] or 4
+   nhotneigh += len(hot)
+
+ print('Creating chi2 array ....')
+ chi2 = np.zeros((2048*2048*nread),float)
+ n = intarr(2048L*2048*nread)
+ dark = reform(dark,2048L*2048*nread,/overwrite)
+ for ii = 0,nframes-1 do begin
+   tmp = reform(red[*,*,*,ii],2048L*2048*nread)
+   good = where(finite(tmp),ngood)
+   if ngood gt 0 then chi2[good] += (tmp[good]-dark[good])^2/apvariance(dark[good],1)
+   n[good] += 1
+ #  chi2+=(red[*,*,*,ii]-dark)^2/apvariance(dark,1)
+ endfor
+ chi2 /= n
+ dark = reform(dark,2048,2048,nread,/overwrite)
+ chi2 = reform(chi2,2048,2048,nread,/overwrite)
+
+ # set nans to 0 before writing
+ bad = where(finite(dark) eq 0,nbad)
+ if nbad gt 0 then dark[bad] = 0.
+ medrate = median(rate)
+
+ # clip pixels where rate is less than 3sigma of expected noise
+ #  for 2 readouts?
+ #low = where(dark[*,*,nread-1] lt 3*1.25*sqrt(apvariance(0,2)/nframes))
+
+ #median filter along reads dimenstion
+ for i=0,2047 do begin
+   slice = reform(dark[i,*,*])
+   dark[i,*,*] = medfilt2d(slice,7,dim=2)
+
+ # set negative pixels to zero
+ neg, = np.where(dark < -10)
+ nneg = len(neg)
+ if nneg gt 0 then dark[neg] = 0.
+
+ # write them out
+ if step gt 1 then  $
+   file = dirs.prefix+string(format='("Dark",i1,"-",a,"-",i8.8)',step,chip,i1) $
+ else $
+   file = dirs.prefix+string(format='("Dark-",a,"-",i8.8)',chip,i1) 
+
+ leadstr = 'APMKDARK: '
+ sxaddhist,leadstr+systime(0),head0
+ info = GET_LOGIN_INFO()
+ sxaddhist,leadstr+info.user_name+' on '+info.machine_name,head0
+ sxaddhist,leadstr+'IDL '+!version.release+' '+!version.os+' '+!version.arch,head0
+ sxaddhist,leadstr+' APOGEE Reduction Pipeline Version: '+getvers(),head0
+ mwrfits,0,caldir+'darkcorr/'+file+'.fits',head0,/create
+ mwrfits,dark,caldir+'darkcorr/'+file+'.fits'
+ mwrfits,chi2,caldir+'darkcorr/'+file+'.fits'
+ mwrfits,mask,caldir+'darkcorr/'+file+'.fits'
+
+ # make some plots/images
+ if not file_test(caldir+'darkcorr/plots',/dir) then file_mkdir,caldir+'darkcorr/plots'
+ darkplot,dark,mask,caldir+'darkcorr/plots/'+file,/hard
+ 
+ # summary data table
+ darklog[ichip].num = i1
+ darklog[ichip].nframes = nframes
+ darklog[ichip].nreads = nread
+ darklog[ichip].nsat = nsat
+ darklog[ichip].nhot = nhot
+ darklog[ichip].nhotneigh = nhotneigh
+ darklog[ichip].nbad = nbad
+ darklog[ichip].medrate = medrate
+ darklog[ichip].nneg = nneg
+
+ # save the rate file
+ file = dirs.prefix+string(format='("DarkRate-",a,"-",i8.8)',chip,i1) 
+ mwrfits,rate,caldir+'darkcorr/'+file+'.fits',/create
+
+ dark = 0
+ time = systime(/seconds)
+ print,'done '+chip,time-time0
+
+endfor
+
+del red
+
+# write the summary log information
+file = dirs.prefix+string(format='("Dark-",i8.8)',i1) 
+mwrfits,darklog,caldir+'darkcorr/'+file+'.tab',/create
+
+# remove lock file
+file_delete,darkfile+'.lock'
+
+# compile summary web page
+darkhtml,caldir
+
+
+def mkflat():
+    pass
+
+def mkbpm():
+    pass
+
+def mkwave():
+    pass
+
+def mklsf():
+    pass
+
+def mkdet():
+    pass
+
+def mkepsf():
+    pass
+
+def mkpsf():
+    pass
+
+def mklittrow():
+    pass
+
+def mkpersist():
+    pass
+
+def mkmodelpersist():
+    pass
+
+def mkflux():
+    pass
+
+def mkmultiwave():
+    pass
+
