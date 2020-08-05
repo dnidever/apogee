@@ -84,10 +84,10 @@ def ap3dproc_lincorr(slice_in,lindata,linhead):
     #------------------------
     else:
         # a separate coefficient for each output (512 columns)
-        coef0 = fltarr(2048,nreads)
-        coef1 = fltarr(2048,nreads)
-        coef2 = fltarr(2048,nreads)
-        corr = fltarr(2048,nreads)
+        coef0 = np.zeros((2048,nreads),float)
+        coef1 = np.zeros((2048,nreads),float)
+        coef2 = np.zeros((2048,nreads),float)
+        corr = np.zeros((2048,nreads),float)
         npar = szlin[2]
         # loop over quadrants
         slice_out = slice_in
@@ -341,7 +341,7 @@ def ap3dproc_crfix(dCounts,satmask,sigthresh=10,onlythisread=False,noise=17.0,cr
             #------------
             if keyword_set(crfix):
                 if keyword_set(verbose) then $
-                print,' Fixing CR at Column ',strtrim(ibdx,2),' Read ',strtrim(ibdr+1,2)
+                print(' Fixing CR at Column '+str(ibdx)+' Read '+str(ibdr+1))
 
                 # Replace with smoothed dCounts, i.e. median of neighbors
                 dCounts_fixed[ibdx,ibdr] = local_med_dCounts       # fix CR dCounts
@@ -483,7 +483,7 @@ def loadlittrow(littrowcorr,silent=True):
     # LITTROWCORR must be scalar string
     if size(littrowcorr,/type) ne 7 or n_elements(littrowcorr) ne 1 then begin
       error = 'LITTROWCORR must be a scalar string with the filename of the LITTROW MASK file'
-      if not keyword_set(silent) then print,'halt: '+error
+      if not keyword_set(silent) then print('halt: '+error)
       stop
       return
     endif
@@ -491,7 +491,7 @@ def loadlittrow(littrowcorr,silent=True):
     # Check that the file exists
     if file_test(littrowcorr) eq 0 then begin
       error = 'LITTROWCORR file '+littrowcorr+' NOT FOUND'
-      if not keyword_set(silent) then print,'halt: '+error
+      if not keyword_set(silent) then print('halt: '+error)
       stop
       return
     endif
@@ -503,12 +503,12 @@ def loadlittrow(littrowcorr,silent=True):
     # Error opening file
     if message ne '' then begin
       error = message
-      if not keyword_set(silent) then print,'halt: '+error
+      if not keyword_set(silent) then print('halt: '+error)
       stop
       return
     endif
   
-    if not keyword_set(silent) then print,'LITTROW file = '+littrowcorr
+    if not keyword_set(silent) then print('LITTROW file = '+littrowcorr)
   
     # Check that the file looks reasonable
     #  must be 2048x2048 and have 0/1 values
@@ -517,7 +517,7 @@ def loadlittrow(littrowcorr,silent=True):
     dum = where(littrowim ne 0 and littrowim ne 1,nbad)
     if szlittrow[0] ne 2 or szlittrow[1] ne 2048 or szlittrow[2] ne 2048 or nbad gt 0 then begin
       error = 'LITTROW MASK must be 2048x2048 with 0/1 values'
-      if not keyword_set(silent) then print,'halt: '+error
+      if not keyword_set(silent) then print('halt: '+error)
       stop
       return
     endif
@@ -535,7 +535,7 @@ def loadpersist(persistcorr,silent=True):
     # PERSISTCORR must be scalar string
     if size(persistcorr,/type) ne 7 or n_elements(persistcorr) ne 1 then begin
       error = 'PERSISTCORR must be a scalar string with the filename of the PERSIST MASK file'
-      if not keyword_set(silent) then print,'halt: '+error
+      if not keyword_set(silent) then print('halt: '+error)
       stop
       return
     endif
@@ -543,7 +543,7 @@ def loadpersist(persistcorr,silent=True):
     # Check that the file exists
     if file_test(persistcorr) eq 0 then begin
       error = 'PERSISTCORR file '+persistcorr+' NOT FOUND'
-      if not keyword_set(silent) then print,'halt: '+error
+      if not keyword_set(silent) then print('halt: '+error)
       stop
       return
     endif
@@ -555,12 +555,12 @@ def loadpersist(persistcorr,silent=True):
     # Error opening file
     if message ne '' then begin
       error = message
-      if not keyword_set(silent) then print,'halt: '+error
+      if not keyword_set(silent) then print('halt: '+error)
       stop
       return
     endif
   
-    if not keyword_set(silent) then print,'PERSIST file = '+persistcorr
+    if not keyword_set(silent) then print('PERSIST file = '+persistcorr)
   
     # Check that the file looks reasonable
     #  must be 2048x2048 and have 0/1 values
@@ -568,7 +568,7 @@ def loadpersist(persistcorr,silent=True):
     persistokay = 0
     if szpersist[0] ne 2 or szpersist[1] ne 2048 or szpersist[2] ne 2048 then begin
       error = 'PERSISTENCE MASK must be 2048x2048'
-      if not keyword_set(silent) then print,'halt: '+error
+      if not keyword_set(silent) then print('halt: '+error)
       stop
       return
     endif
@@ -586,7 +586,7 @@ def loaddark(darkcorr,silent=True):
     # DARKCORR must be scalar string
     if size(darkcorr,/type) ne 7 or n_elements(darkcorr) ne 1 then begin
       error = 'DARKCORR must be a scalar string with the filename of the dark correction file'
-      if not keyword_set(silent) then print,'halt: '+error
+      if not keyword_set(silent) then print('halt: '+error)
       stop
       return
     endif
@@ -594,7 +594,7 @@ def loaddark(darkcorr,silent=True):
     # Check that the file exists
     if file_test(darkcorr) eq 0 then begin
       error = 'DARKCORR file '+darkcorr+' NOT FOUND'
-      if not keyword_set(silent) then print,'halt: '+error
+      if not keyword_set(silent) then print('halt: '+error)
       stop
       return
     endif
@@ -605,7 +605,7 @@ def loaddark(darkcorr,silent=True):
     # Error reading header
     if errmsg0 ne '' or errmsg1 ne '' then begin
       error = errmsg0+' '+errmsg1
-      if not keyword_set(silent) then print,'halt: '+error
+      if not keyword_set(silent) then print('halt: '+error)
       stop
       return
     endif
@@ -633,7 +633,7 @@ def loaddark(darkcorr,silent=True):
     if nreads_dark lt nreads then begin
       error = 'SUPERDARK file '+darkcorr+' does not have enough READS. Have '+strtrim(nreads_dark,2)+$
               ' but need '+strtrim(nreads,2)
-      if not keyword_set(silent) then print,'halt: '+error
+      if not keyword_set(silent) then print('halt: '+error)
       stop
       return
     endif
@@ -654,25 +654,24 @@ def loaddark(darkcorr,silent=True):
       # Initializing the cube
       FITS_READ,darkcorr,darkim,exthead,exten_no=1,message=message,/no_abort
       szim = size(darkim)
-      darkcube = fltarr(szim[1],szim[2],nreads_dark)
+      darkcube = np.zeros((szim[1],szim[2],nreads_dark),float)
   
       # Read in the extensions
       For k=1,nreads_dark do begin
         FITS_READ,darkcorr,extim,exthead,exten_no=k,message=message,/no_abort 
         darkcube[*,*,k-1] = extim
-      End
   
     endelse # extensions
   
     szdark = size(darkcube)
   
-    if not keyword_set(silent) then print,'Dark Correction file = '+darkcorr
+    if not keyword_set(silent) then print('Dark Correction file = '+darkcorr)
   
     # Check that the file looks reasonable
     szdark = size(darkcube)
     if (szdark[0] ne 3 or szdark[1] lt 2048 or szdark[2] ne 2048) then begin
       error = 'Dark correction data must a 2048x2048xNreads datacube of the dark counts per pixel'
-      if not keyword_set(silent) then print,'halt: '+error
+      if not keyword_set(silent) then print('halt: '+error)
       stop
       return
     endif
@@ -692,7 +691,7 @@ def loadflat(flatcorr,silent=True):
     # FLATCORR must be scalar string
     if size(flatcorr,/type) ne 7 or n_elements(flatcorr) ne 1 then begin
       error = 'FLATCORR must be a scalar string with the filename of the flat correction file'
-      if not keyword_set(silent) then print,'halt: '+error
+      if not keyword_set(silent) then print('halt: '+error)
       stop
       return
     endif
@@ -700,7 +699,7 @@ def loadflat(flatcorr,silent=True):
     # Check that the file exists
     if file_test(flatcorr) eq 0 then begin
       error = 'FLATCORR file '+flatcorr+' NOT FOUND'
-      if not keyword_set(silent) then print,'halt: '+error
+      if not keyword_set(silent) then print('halt: '+error)
       stop
       return
     endif
@@ -712,18 +711,18 @@ def loadflat(flatcorr,silent=True):
     # Error opening file
     if message ne '' then begin
       error = message
-      if not keyword_set(silent) then print,'halt: '+error
+      if not keyword_set(silent) then print('halt: '+error)
       stop
       return
     endif
   
-    if not keyword_set(silent) then print,'Flat Field Correction file = '+flatcorr
+    if not keyword_set(silent) then print('Flat Field Correction file = '+flatcorr)
   
     # Check that the file looks reasonable
     szflat = size(flatim)
     if (szflat[0] ne 2 or szflat[1] ne 2048 or szflat[2] ne 2048) then begin
       error = 'Flat Field correction image must a 2048x2048 image'
-      if not keyword_set(silent) then print,'halt: '+error
+      if not keyword_set(silent) then print('halt: '+error)
       stop
       return
     endif
@@ -791,19 +790,20 @@ def aprefcorr(cube,head,mask,indiv=indiv,vert=vert,horz=horz,noflip=noflip,silen
     if n_elements(cds) eq 0 then cds=1
     if n_elements(vert) eq 0 then vert=1
     if n_elements(horz) eq 0 then horz=1
-    print,'in aprefcorr, indiv: ',indiv
+    print('in aprefcorr, indiv: '+indiv)
 
-    satval=55000L
+    satval = 55000
 
     snmin = 10
     if keyword_set(indiv) then hmax=1e10 else hmax=65530
 
     if n_elements(mask) le 1 then mask=intarr(2048,2048)
     readmask = intarr(nread)
-    if not keyword_set(silent):
-        print,'Calculating mean reference'
-    meanref = fltarr(512,2048) & nref=intarr(512,2048)
-    for i=0,nread-1:
+    if silent==False:
+        print('Calculating mean reference')
+    meanref = np.zeros((512,2048),float)
+    nref = np.zeros((512,2048),int)
+    for i in range(nread):
         ref = cube[2048:2559,*,i]
 
         m = MEAN(ref[128:511-128,128:2047-128],/double)
@@ -817,7 +817,7 @@ def aprefcorr(cube,head,mask,indiv=indiv,vert=vert,horz=horz,noflip=noflip,silen
         iread = sxpar(head,card,count=count)
         if count eq 0 then iread=i+1
         if not keyword_set(silent):
-            print,format='(%"reading ref: %3d %3d\r",$)',i,iread
+            print('reading ref: %3d %3d\r' % (i,iread))
         # skip first read and any bad reads
         if iread gt 1 and m/s gt snmin and h lt hmax:
             good = where(finite(ref))
@@ -825,26 +825,27 @@ def aprefcorr(cube,head,mask,indiv=indiv,vert=vert,horz=horz,noflip=noflip,silen
             nref[good] += 1
             readmask[i] = 0
         else:
-            print,'Rejecting: ',i,m,s,h
+            print('Rejecting: ',i,m,s,h)
             readmask[i] = 1
 
     meanref /= nref
 
-    if not keyword_set(silent):
-        print,'Reference processing '
+    if silent == False:
+        print('Reference processing ')
 
     # Create vertical and horizontal ramp images
-    rows = findgen(2048)
-    cols = intarr(512)
+    rows = np.arange(2048).astype(float)
+    cols = np.zeros(512,int)
     cols += 1
     vramp = (cols##rows)/2048
              vrramp = 1-vramp
-    cols = findgen(2048)
-    rows = intarr(2048)
+    cols = np.arange(2048).astype(float)
+    rows = np.zeros(2048.int)
     rows += 1
     hramp = (cols##rows)/2048
     hrramp = 1-hramp
-    clo = fltarr(2048) & chi=fltarr(2048)
+    clo = np.zeros(2048,float)
+    chi = np.zeros(2048,float)
 
     if keyword_set(cds) then cdsref=cube[0:2047,*,1]
 
@@ -950,7 +951,7 @@ def aprefcorr(cube,head,mask,indiv=indiv,vert=vert,horz=horz,noflip=noflip,silen
   endif
   if keyword_set(q3fix) then begin
     #fix=red
-    q3offset=fltarr(2048)
+    q3offset = np.zeros(2048,float)
     for irow=0,2047 do begin
       q2m=median(red[923:1023,irow])
       q3a=median(red[1024:1124,irow])
@@ -1412,16 +1413,16 @@ def ap3dproc(files0,outfile,detcorr=detcorr,bpmcorr=bpmcorr,darkcorr=darkcorr,li
   
   if sz[1] eq 2560 then begin
     refout1 = median(cube[2048:*,*,0:3<(nreads-1)],dim=3)
-    sig_refout_arr = fltarr(nreads)
-    rms_refout_arr = fltarr(nreads)
+    sig_refout_arr = np.zeros(nreads,float)
+    rms_refout_arr = np.zeros(nreads,float)
   endif
   
   refpix1 = [[ median(cube[0:2047,0:3,0:3<(nreads-1)],dim=3) ], $
              [transpose( median(cube[0:3,*,0:3<(nreads-1)],dim=3) ) ],$
              [transpose( median(cube[2044:2047,*,0:3<(nreads-1)],dim=3) ) ],$
              [ median(cube[0:2047,2044:2047,0:3<(nreads-1)],dim=3) ]]
-  sig_refpix_arr = fltarr(nreads)
-  rms_refpix_arr = fltarr(nreads)
+  sig_refpix_arr = np.zeros(nreads,float)
+  rms_refpix_arr = np.zeros(nreads,float)
   
   for k=0,nreads-1 do begin
   
@@ -1461,8 +1462,8 @@ def ap3dproc(files0,outfile,detcorr=detcorr,bpmcorr=bpmcorr,darkcorr=darkcorr,li
       med_rms_refpix_arr = MEDFILT1D(rms_refpix_arr,11<nreads,/edge)
       med_rms_refout_arr = MEDFILT1D(rms_refout_arr,11<nreads,/edge)
     else:
-      med_rms_refpix_arr = fltarr(nreads)+median(rms_refpix_arr)
-      med_rms_refout_arr = fltarr(nreads)+median(rms_refout_arr)
+      med_rms_refpix_arr = np.zeros(nreads,float)+np.median(rms_refpix_arr)
+      med_rms_refout_arr = np.zeros(nreads,float)+np.median(rms_refout_arr)
 
     sig_rms_refpix_arr = mad(rms_refpix_arr) > 1
     sig_rms_refout_arr = mad(rms_refout_arr) > 1
@@ -1473,7 +1474,7 @@ def ap3dproc(files0,outfile,detcorr=detcorr,bpmcorr=bpmcorr,darkcorr=darkcorr,li
     if nreads gt 2 then begin
       med_rms_refpix_arr = MEDFILT1D(rms_refpix_arr,11<nreads,/edge)
     endif else begin
-      med_rms_refpix_arr = fltarr(nreads)+median(rms_refpix_arr)
+      med_rms_refpix_arr = np.zeros(nreads,float)+np.median(rms_refpix_arr)
     endelse
     sig_rms_refpix_arr = mad(rms_refpix_arr) > 1
     bdreads = where( (rms_refpix_arr-med_rms_refpix_arr) gt 10*sig_rms_refpix_arr,nbdreads)
@@ -1946,11 +1947,11 @@ def ap3dproc(files0,outfile,detcorr=detcorr,bpmcorr=bpmcorr,darkcorr=darkcorr,li
         nnei = (xhi-xlo+1)*(yhi-ylo+1) - 1
   
         # Create a fake "slice" of the neighboring pixels
-        nei_slice = fltarr(nnei,nreads)
-        nei_slice_orig = fltarr(nnei,nreads)  # original slice if saturated
-        nei_cols = fltarr(nnei)  # x
-        nei_rows = fltarr(nnei)  # y
-        nei_satmask = lonarr(nnei,3)
+        nei_slice = np.zeros((nnei,nreads),float)
+        nei_slice_orig = np.zeros((nnei,nreads),float)  # original slice if saturated
+        nei_cols = np.zeros(nnei,float)  # x
+        nei_rows = np.zeros(nnei,float)  # y
+        nei_satmask = np.zeros((nnei,3),int)
         count = 0
         for j=xlo,xhi do begin
           for k=ylo,yhi do begin
@@ -2099,15 +2100,14 @@ def ap3dproc(files0,outfile,detcorr=detcorr,bpmcorr=bpmcorr,darkcorr=darkcorr,li
   
   # No gain image, using gain=1.0 for all pixels
   # gain = Electrons/ADU
-  if n_elements(gainim) eq 0 then begin
-    print,'NO gain image.  Using GAIN=1'
-    gainim = fltarr(2048,2048)+1.0
-  end
+  if len(gainim)==0:
+    print('NO gain image.  Using GAIN=1')
+    gainim = np.zeros((2048,2048),float)+1.0
 
     
   # Fowler Sampling
   #------------------
-  if not keyword_set(uptheramp):
+  if uptheramp == False:
   
     # Make sure that Nfowler isn't too large
     Nfowler_used = Nfowler
@@ -2154,11 +2154,11 @@ def ap3dproc(files0,outfile,detcorr=detcorr,bpmcorr=bpmcorr,darkcorr=darkcorr,li
     # Calculating the slope for each pixel
     #  t is the exptime, s is the signal
     #  we will use the read index for t
-    sumts = fltarr(sz[1],sz[2])   # SUM t*s
-    sums = fltarr(sz[1],sz[2])    # SUM s
-    sum = intarr(sz[1],sz[2])    # SUM s
-    sumt = fltarr(sz[1],sz[2])   # SUM t*s
-    sumt2 = fltarr(sz[1],sz[2])   # SUM t*s
+    sumts = np.zeros((sz[1],sz[2]),float)   # SUM t*s
+    sums = np.zeros((sz[1],sz[2]),float)    # SUM s
+    sum = np.zeros((sz[1],sz[2]),int)    # SUM s
+    sumt = np.zeros((sz[1],sz[2]),float)   # SUM t*s
+    sumt2 = np.zeros((sz[1],sz[2]),float)   # SUM t*s
     for k=0L,ngdreads-1:
       slice = cube[*,*,gdreads[k]]
       if not keyword_set(satfix):
@@ -2199,7 +2199,7 @@ def ap3dproc(files0,outfile,detcorr=detcorr,bpmcorr=bpmcorr,darkcorr=darkcorr,li
     tmp=im[0:2047,0:2047]
     ref=im[2048:2559,0:2047]
     # subtract smoothed horizontal structure
-    ref-=(fltarr(512)+1)#medfilt1d(median(ref,dim=1),7)
+    ref-=(np.zeros(512,float)+1)#medfilt1d(median(ref,dim=1),7)
     aprefcorr_sub,tmp,ref
     im=tmp
     nx = 2048
@@ -2226,7 +2226,7 @@ def ap3dproc(files0,outfile,detcorr=detcorr,bpmcorr=bpmcorr,darkcorr=darkcorr,li
   
   
   # Initialize varim
-  varim = fltarr(nx,ny)         # variance in ADU
+  varim = np.zeros((nx,ny),float)         # variance in ADU
   
   # 1. Poisson Noise from the image: note that the equation for UTR
   #    noise above already includes Poisson term
@@ -2280,11 +2280,12 @@ def ap3dproc(files0,outfile,detcorr=detcorr,bpmcorr=bpmcorr,darkcorr=darkcorr,li
   # Construct output datacube
   #  [image, error, mask]
   #----------------------------
-  if n_elements(pmodelim) gt 0 then output = fltarr(nx,ny,4) else  output = fltarr(nx,ny,3)
-  output[*,*,0] = im
-  output[*,*,1] = sqrt(varim) > 1  # must be greater than zero
-  output[*,*,2] = mask
-  if n_elements(pmodelim) gt 0 then output[*,*,3]=pmodelim  # persistence model in ADU
+  if n_elements(pmodelim) gt 0 then output = np.zeros((nx,ny,4),float) else  output = np.zeros((nx,ny,3),float)
+  output[:,:,0] = im
+  output[:,:,1] = np.maximum(np.sqrt(varim),1)  # must be greater than zero
+  output[:,:,2] = mask
+  if len(pmodelim)>0:
+    output[:,:,3]=pmodelim  # persistence model in ADU
   
   #-----------------------------
   # Update header
