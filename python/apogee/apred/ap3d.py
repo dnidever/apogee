@@ -45,16 +45,16 @@ def ap3dproc_lincorr(slice_in,lindata,linhead):
     counts_correct = poly(counts_obs,coef)
     """
 
-    readtime = 10.0   ; the time between reads
+    readtime = 10.0   # the time between reads
 
-    sz = size(slice_in)
-    nreads = sz[2]
+    sz = slice_in.shape
+    nreads = sz[1]
 
-    szlin = size(lindata)
+    szlin = lindata.shape
 
     # Each pixel separately
     #-----------------------
-    if szlin[1]==2048:
+    if szlin[0]==2048:
 
         # Need to figure out the threshold for each pixel
         # Only want to correct data that need it and are
@@ -73,12 +73,11 @@ def ap3dproc_lincorr(slice_in,lindata,linhead):
         # This takes you from OBSERVED COUNTS to CORRECTED COUNTS
         # x = observed counts
         # y = corrected counts
-  
-        #xx = (fltarr(2048)+1.0)#findgen(nreads) * readtime
-        coef0 = reform(lindata[*,0])#(fltarr(nreads)+1.0)
-        coef1 = reform(lindata[*,1])#(fltarr(nreads)+1.0)
-        coef2 = reform(lindata[*,2])#(fltarr(nreads)+1.0)
-        slice_out = coef0 + coef1*slice_in + coef2*slice_in^2
+
+        coef0 = lindata[:,0].repeat(nreads).reshape(2048,nreads)
+        coef1 = lindata[:,1].repeat(nreads).reshape(2048,nreads)
+        coef2 = lindata[:,2].repeat(nreads).reshape(2048,nreads)        
+        slice_out = coef0 + coef1*slice_in + coef2*slice_in**2
 
     # Each output separately
     #------------------------
@@ -88,24 +87,24 @@ def ap3dproc_lincorr(slice_in,lindata,linhead):
         coef1 = np.zeros((2048,nreads),float)
         coef2 = np.zeros((2048,nreads),float)
         corr = np.zeros((2048,nreads),float)
-        npar = szlin[2]
+        npar = szlin[1]
         # loop over quadrants
-        slice_out = slice_in
+        slice_out = slice_in.copy()
         for i in range(4):
-            corr[512*i:512*i+511,*] = lindata[i,0]
-            x = slice_in[512*i:512*i+511,*]
-            for j=1,npar-1:
-                corr[512*i:512*i+511,*] += lindata[i,j]*x
-                x *= slice_in[512*i:512*i+511,*]
+            corr[512*i:512*i+512,:] = lindata[i,0]
+            x = slice_in[512*i:512*i+512,:]
+            for j in range(npar-1):
+                corr[512*i:512*i+512,:] += lindata[i,j+1]*x
+                x *= slice_in[512*i:512*i+512,:]
         slice_out = slice_in*corr
-        for i=0,3 do coef0[512*i:512*i+511,*]=lindata[i,0]
-        for i=0,3 do coef1[512*i:512*i+511,*]=lindata[i,1]
-        for i=0,3 do coef2[512*i:512*i+511,*]=lindata[i,2]
-        slice_out = coef0 + coef1*slice_in + coef2*slice_in^2
-
-    #Do the correction.  Only correct values that need it
+        for i in range(4):
+            coef0[512*i:512*i+512,:] = lindata[i,0]
+            coef1[512*i:512*i+512,:] = lindata[i,1]
+            coef2[512*i:512*i+512,:] = lindata[i,2]
+        slice_out = coef0 + coef1*slice_in + coef2*slice_in**2
     
     return slice_out
+
 
 def ap3dproc_darkcorr(slice_in,darkslice,darkhead):
     """
@@ -116,22 +115,13 @@ def ap3dproc_darkcorr(slice_in,darkslice,darkhead):
     by the time for each read
     """
 
-    #readtime = 10.0   # the time between reads, maybe this should be an input
-    #                  # or gotten from the header
-    #
-    sz = size(slice_in)
-    nreads = sz[2]
-    #
-    #tt = (fltarr(2048)+1.0)#findgen(nreads) * readtime  # time for each element
-    #darkslice2d = darkslice#(fltarr(nreads)+1.0)        # dark rate for each element
-    #darkcorr = darkslice2d*tt                           # dark counts
-    #slice_out = slice_in - darkcorr
+    nreads = slice_in.shape[]1
 
     # Just subtract the darkslice
-    #slice_out = slice_in - darkslice
     # subtract each read at a time in case we still have the reference pixels
-    slice_out = slice_in
-    for i=0,nreads-1 do slice_out[0:2047,i]-=darkslice[*,i]
+    slice_out = slice_in.copy()
+    for i in range(nreads):
+        slice_out[0:2048,i] -= darkslice[:,i]
 
     return slice_out
 
@@ -164,46 +154,46 @@ def ap3dproc_crfix(dCounts,satmask,sigthresh=10,onlythisread=False,noise=17.0,cr
 
     """
 
-    sz = dCounts.shape
-    npix = sz[0]
-    nreads = sz[1]   # this is actually Nreads-1
+    npix,nreads = dCounts.shape
+    # nreads is actually Nreads-1
 
     # Initialize the CRSTR with 50 CRs, will trim later
     #  don't know Y right now
-    crstr_data_def = {X:0L,Y:0L,READ:0L,COUNTS:0.0,NSIGMA:0.0,GLOBALSIGMA:0.0,FIXED:0,LOCALSIGMA:0.0,FIXERROR:0.0,NEICHECK:0}
-    crstr = {NCR:0L,DATA:REPLICATE(crstr_data_def,50)}
+    dtype = np.dtype([('x',int),('y',int),('read',int),('counts',float),('nsigma',float),('globalsigma',float),
+                      ('fixed',bool),('localsigma',float),('fixerror',float),('neicheck',bool)])
+    crstr = np.zeros(100,dtype)
+    #crstr_data_def = {X:0L,Y:0L,READ:0L,COUNTS:0.0,NSIGMA:0.0,GLOBALSIGMA:0.0,FIXED:0,LOCALSIGMA:0.0,FIXERROR:0.0,NEICHECK:0}
+    #crstr = {NCR:0L,DATA:REPLICATE(crstr_data_def,50)}
 
     # Initializing dCounts_fixed
-    dCounts_fixed = dCounts
+    dCounts_fixed = dCounts.copy()
 
 
     #-----------------------------------
     # Get median dCounts for each pixel
     #-----------------------------------
-    med_dCounts = np.median(dCounts,dim=2,/even)    # NAN are automatically ignored
+    med_dCounts = np.nanmedian(dCounts,axis=1)    # NAN are automatically ignored
 
     # Check if any medians are NAN
     #  would happen if all dCounts in a pixel are NAN
-    bdnan = np.where(finite(med_dCounts) eq 0,nbdnan)
-    if nbdnan>0:
-        med_dCounts[bdnan] = 0.0  # set to zero
+    med_dCounts[~np.isfinite(med_dCounts)] = 0.0    # set to zero
     
     # Number of non-saturated, "good" reads
-    totgd = np.sum(np.isfinite(dCounts),axis=2)
+    totgd = np.sum(np.isfinite(dCounts),axis=1)
 
     # If we only have 2 good Counts then we might need to use
     # the minimum dCounts in case there is a CR
-    ind2 = where(totgd eq 2,nind2)
-    for j=0,nind2-1:
-        min_dCounts = MIN(dCounts[ind2[j],*],dim=2)
-        max_dCounts = MAX(dCounts[ind2[j],*],dim=2)
+    ind2, = np.where(totgd == 2)
+    nind2 = len(ind2)
+    for j in range(nind2):
+        min_dCounts = np.min(dCounts[ind2[j],:],axis=1)
+        max_dCounts = np.max(dCounts[ind2[j],:],axis=1)
         # If they are too different then use the lower value
         #  probably because of a CR
-        if (max_dCounts-min_dCounts)/(min_dCounts>1e-4) gt 0.3:
-            med_dCounts[ind2[j]] = min_dCounts>1e-4
-            #variability_im[ind2[j],i] = 0.5    # high variability
+        if (max_dCounts-min_dCounts)/np.maximum(min_dCounts,1e-4) > 0.3:
+            med_dCounts[ind2[j]] = np.maximum(min_dCounts,1e-4)
 
-    med_dCounts2D = med_dCounts#(fltarr(nreads)+1L)  # 2D version
+    med_dCounts2D = med_dCounts.repeat(nreads).reshape((npix,nreads))   # 2D version
 
 
     #-----------------------------------------------------
@@ -211,9 +201,8 @@ def ap3dproc_crfix(dCounts,satmask,sigthresh=10,onlythisread=False,noise=17.0,cr
     #-----------------------------------------------------
     #  this should help remove transparency variations
 
-    smbin = 11L < nreads    # in case Nreads is small
-    #smbin_half = smbin/2   # should be even
-    if nreads gt smbin:
+    smbin = np.minimum(11, nreads)    # in case Nreads is small
+    if nreads > smbin:
         sm_dCounts = MEDFILT2D(dCounts,smbin,dim=2,/edge_copy,/even)
     else:
         sm_dCounts = med_dCounts2D
@@ -225,19 +214,26 @@ def ap3dproc_crfix(dCounts,satmask,sigthresh=10,onlythisread=False,noise=17.0,cr
     # If there are still some NAN then replace them with the global
     # median dCounts for that pixel.  These are probably saturated
     # so it probably doesn't matter
-    bdnan = where(finite(sm_dCounts) eq 0,nbdnan)
-    if nbdnan gt 0:
+    bdnan, = np.where(np.finite(sm_dCounts) == False)
+    nbdnan = len(bdnan)
+    if nbdnan>0:
         sm_dCounts[bdnan] = med_dCounts2D[bdnan]
 
     #--------------------------------------
     # Variability from median (fractional)
     #--------------------------------------
-    variability = MAD(dCounts-med_dCounts2D,dim=2,/zero)
-    variability = variability / (med_dCounts > 0.001)  # make it a fractional variability
-    bdvar = where(finite(variability) eq 0,nbdvar)
-    if nbdvar gt 0 then variability[bdvar] = 0.0  # all NAN
-    if nind2 gt 0 then variability[ind2] = 0.5    # high variability for only 2 good dCounts
+    variability = dln.mad(dCounts-med_dCounts2D,axis=1,zero=True)
+    variability = variability / np.maximum(med_dCounts, 0.001)  # make it a fractional variability
+    bdvar, = np.where(np.finite(variability) == False)
+    nbdvar = len(bdar)
+    if nbdvar>0:
+        variability[bdvar] = 0.0  # all NAN
+    if nind2>0:
+        variability[ind2] = 0.5    # high variability for only 2 good dCounts
 
+
+    ### DLN GOT TO HERE  8/6/2020
+    
 
     #----------------------------------
     # Get sigma dCounts for each pixel
