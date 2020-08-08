@@ -231,45 +231,42 @@ def ap3dproc_crfix(dCounts,satmask,sigthresh=10,onlythisread=False,noise=17.0,cr
     if nind2>0:
         variability[ind2] = 0.5    # high variability for only 2 good dCounts
 
-
-    ### DLN GOT TO HERE  8/6/2020
-    
-
     #----------------------------------
     # Get sigma dCounts for each pixel
     #----------------------------------
     #sig_dCounts = mad(dCounts,dim=2)
     # subtract smoothed version to remove any transparency variations
     # saturated reads (NAN in dCounts) are automatically ignored
-    sig_dCounts = MAD(dCounts-sm_dCounts,dim=2,/zero)
-    sig_dCounts = sig_dCounts > noise   # needs to be at least above the noise
+    sig_dCounts = dln.mad(dCounts-sm_dCounts,axis=1,zero=True)
+    sig_dCounts = np.maximum(sig_dCounts, noise)   # needs to be at least above the noise
 
     # Check if any sigma are NAN
     #  would happen if all dCounts in a pixel are NAN
-    bdnan = where(finite(sig_dCounts) eq 0,nbdnan)
-    if nbdnan gt 0 then sig_dCounts[bdnan] = noise  # set to noise level
+    sig_dCounts[~np.isfinite(sig_dCounts)] = noise   # set to noise level
 
     # Pixels with only 2 good dCounts, set sigma to 30%
-    for j=0,nind2-1 do sig_dCounts[ind2[j]]=0.3*med_dCounts[ind2[j]] > noise
+    for j in range(nind2):
+        sig_dCounts[ind2[j]] = np.maximum(0.3*med_dCounts[ind2[j]], noise)
 
-    sig_dCounts2D = sig_dCounts#(fltarr(nreads)+1L)  # 2D version
-
-
+    sig_dCounts2D = sig_dCounts.repeat(nreads).reshape((npix,nreads))   # 2D version
+    
     #-----------
     # Find CRs
     #-----------
     # threshold for number of sigma above (local) median
-    if n_elements(sigthresh) eq 0 then nsig_thresh=10L else nsig_thresh=sigthresh
-    nsig_thresh = nsig_thresh > 3    # 3 at a minimum
+    nsig_thresh = np.maximum(nsig_thresh, 3)    # 3 at a minimum
 
     # Saturated dCounts (NANs) are automatically ignored
     nsigma_slice = (dCounts-sm_dCounts)/sig_dCounts2D
-    bd1D = where( ( nsigma_slice gt nsig_thresh ) AND $
-                  ( dCounts gt noise*nsig_thresh ) ,nbd1D)
-
-
+    bd1D, = np.where( ( nsigma_slice > nsig_thresh ) &
+                      ( dCounts > noise*nsig_thresh ))
+    nbd1D = len(bd1D)
+    
     if verbose: print(str(nbd1D)+' CRs found')
 
+    ### DLN GOT TO HERE  8/6/2020
+
+    
     # Some CRs found
     if nbd1D>0:
         bd2D = array_indices(dCounts,bd1D)
@@ -277,11 +274,11 @@ def ap3dproc_crfix(dCounts,satmask,sigthresh=10,onlythisread=False,noise=17.0,cr
         bdr = reform(bd2D[1,*])  # read
 
         # Correct the CRs and correct the pixels
-        for j=0,nbd1D-1:
+        for j in range(nbd1D):
             ibdx = (bdx[j])[0]
             ibdr = (bdr[j])[0]
 
-            dCounts_pixel = reform(dCounts[ibdx,*])
+            dCounts_pixel = reform(dCounts[ibdx,:])
 
             # ONLYTHISREAD
             #  for checking neighboring pixels in the iterative part
@@ -737,8 +734,8 @@ def aprefcorr_sub(image,ref):
     image[1536:2047,*]-=revref
     return image
 
-def aprefcorr(cube,head,mask,indiv=indiv,vert=vert,horz=horz,noflip=noflip,silent=silent,
-              readmask=readmask,lastgood=lastgood,cds=cds,plot=plot,fix=fix,q3fix=q3fix,keepref=keepref):
+def aprefcorr(cube,head,mask,indiv=3,vert=1,horz=1,noflip=noflip,silent=silent,
+              readmask=readmask,lastgood=lastgood,cds=1,plot=plot,fix=fix,q3fix=q3fix,keepref=False):
     """
     This corrects a raw APOGEE datacube for the reference pixels
     and reference output
@@ -769,54 +766,49 @@ def aprefcorr(cube,head,mask,indiv=indiv,vert=vert,horz=horz,noflip=noflip,silen
     #    with /indiv), then subtract vertical ramps from each quadrant using
     #    reference pixels, then subtract smoothed horizontal ramps
 
-    ncube = n_elements(cube)
-    nhead = n_elements(head)
-
     # Number of reads
-    sz = size(cube)
-    nread = sz[3]
+    nx,ny,nread = cube.shape
 
     # create long output
-    out = lonarr(2048,2048,nread)
-    if keyword_set(keepref) then refout = lonarr(512,2048,nread)
+    out = np.zeros((2048,2048,nread),int)
+    if keepref: refout = np.zeros(512,2048,nread),int)
 
     # Ignore reference array by default
-    if n_elements(indiv) eq 0 then indiv=3
     # Default is to do CDS, vertical, and horizontal correction
-    if n_elements(cds) eq 0 then cds=1
-    if n_elements(vert) eq 0 then vert=1
-    if n_elements(horz) eq 0 then horz=1
-    print('in aprefcorr, indiv: '+indiv)
+    print('in aprefcorr, indiv: '+str(indiv))
 
     satval = 55000
 
     snmin = 10
-    if keyword_set(indiv) then hmax=1e10 else hmax=65530
+    if indiv>0:
+        hmax = 1e10
+    else:
+        hmax = 65530
 
-    if n_elements(mask) le 1 then mask=intarr(2048,2048)
-    readmask = intarr(nread)
+    if len(mask)<=1: mask=np.zeros((2048,2048),int)
+    readmask = np.zeros(nread,int)
     if silent==False:
         print('Calculating mean reference')
     meanref = np.zeros((512,2048),float)
     nref = np.zeros((512,2048),int)
     for i in range(nread):
-        ref = cube[2048:2559,*,i]
+        ref = cube[2048:2560,:,i]
 
-        m = MEAN(ref[128:511-128,128:2047-128],/double)
-        s = stddev(ref[128:511-128,128:2047-128],/double)
-        h = MAX(ref[128:511-128,128:2047-256])
-        sat = where(ref ge satval,nsat)
-        if nsat gt 0 then ref[sat] = !values.f_nan
+        m = np.mean(ref[128:512-128,128:2048-128].astype(np.float64))
+        s = np.std(ref[128:512-128,128:2048-128].astype(np.float64))
+        h = np.max(ref[128:512-128,128:2048-256])
+        ref[ref>=sat] = np.nan        
         # SLICE business is just for special fast handling, ignored if
         #   not in header
-        card = string(format='(a,i3.3)','SLICE',i)
-        iread = sxpar(head,card,count=count)
-        if count eq 0 then iread=i+1
-        if not keyword_set(silent):
+        card = 'SLICE%03d' % i
+        iread = head.getval(card)
+        count = len(icard)
+        if count==0: iread=i+1
+        if silent==False:
             print('reading ref: %3d %3d\r' % (i,iread))
         # skip first read and any bad reads
-        if iread gt 1 and m/s gt snmin and h lt hmax:
-            good = where(finite(ref))
+        if (iread > 1) and (m/s > snmin) and (h < hmax):
+            good, = np.where(np.isfinite(ref))
             meanref[good] += (ref[good]-m)
             nref[good] += 1
             readmask[i] = 0
@@ -829,12 +821,16 @@ def aprefcorr(cube,head,mask,indiv=indiv,vert=vert,horz=horz,noflip=noflip,silen
     if silent == False:
         print('Reference processing ')
 
+
+#### DLN got to here
+
+        
     # Create vertical and horizontal ramp images
     rows = np.arange(2048).astype(float)
     cols = np.zeros(512,int)
     cols += 1
     vramp = (cols##rows)/2048
-             vrramp = 1-vramp
+    vrramp = 1-vramp
     cols = np.arange(2048).astype(float)
     rows = np.zeros(2048.int)
     rows += 1
@@ -843,14 +839,14 @@ def aprefcorr(cube,head,mask,indiv=indiv,vert=vert,horz=horz,noflip=noflip,silen
     clo = np.zeros(2048,float)
     chi = np.zeros(2048,float)
 
-    if keyword_set(cds) then cdsref=cube[0:2047,*,1]
+    if cds: cdsref = cube[0:2048,:,1]
 
     # Loop over the reads
-    lastgood=nread-1
-    for iread=0,nread-1 do:
+    lastgood = nread-1
+    for iread in range(nread):
 
         # Subtract mean reference array
-        red = long(cube[0:2047,*,iread])
+        red = cube[0:2048,:,iread].astype(int)
 
 ### I GOT TO HERE !!!!
              
@@ -878,9 +874,9 @@ def aprefcorr(cube,head,mask,indiv=indiv,vert=vert,horz=horz,noflip=noflip,silen
   if keyword_set(cds) then red-=cdsref
 
   ref = cube[2048:2559,*,iread]
-  if indiv eq 1 then begin
-    APREFCORR_SUB,red,ref
-    ref-=ref
+  if indiv==1:
+    ref = aprefcorr_sub(red)
+    ref -= ref
   endif else if indiv gt 1 then begin
     APREFCORR_SUB,red,median(ref,indiv)
     ref-=median(ref,indiv)
